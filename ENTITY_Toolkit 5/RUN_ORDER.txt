@@ -1,0 +1,136 @@
+ENTITY DDL DRY RUN -- HOW TO RUN
+=================================
+
+Everything runs from inside this folder. Do not move the SQL files out
+of it -- RUN_ALL.sql expects ENTITY_DDLs_DryRun/ to sit beside it.
+
+
+BEFORE YOU START -- THE PASSWORD
+--------------------------------
+
+No script in this package sets a password. If you need to change the
+ENTITYDEV password, do it at the SQL> prompt as SYSDBA first:
+
+    SQL> PASSWORD ENTITYDEV
+
+Use that command rather than ALTER USER ... IDENTIFIED BY. When an
+ALTER USER statement fails, SQL*Plus echoes it back with the password
+already substituted in, which puts the value into the log in clear
+text. The PASSWORD command never places it in a statement.
+
+ORA-28007 "password cannot be reused" means the profile keeps a
+password history -- choose a value that has not been used before.
+
+RUN_ALL.sql asks for the EXISTING password so it can reconnect. Have
+it to hand.
+
+
+OPTION A -- ONE SQL SCRIPT (recommended)
+----------------------------------------
+
+    cd ENTITY_DryRun_Package
+    sqlplus / as sysdba @RUN_ALL.sql
+
+Start connected as SYS. Five steps, unattended:
+
+    1. Locate ENTITYDEV (switches PDB if multitenant)
+    2. Read-only pre-flight checks
+    3. Unlock the account, adjust privileges
+    4. Reconnect as ENTITYDEV and CLEAR THE SANDBOX
+    5. Run the DDL
+
+It asks only for the service name and the existing ENTITYDEV password.
+
+*** STEP 4 WIPES THE SANDBOX ***
+    Every object owned by ENTITYDEV is dropped with PURGE, with no
+    confirmation prompt. This is intended and authorised: a dry run
+    needs a clean schema to mean anything, and it makes the run
+    repeatable. An inventory is written to entitydev_teardown.log
+    first. Nothing outside ENTITYDEV can be affected -- both the
+    teardown and the deployment refuse to run as any other user.
+
+Allow several minutes. Clearing ~1,100 objects then deploying 137
+tables is real work.
+
+
+OPTION B -- STEP BY STEP
+------------------------
+
+If you would rather see each stage separately. TWO DIFFERENT
+CONNECTIONS -- this matters.
+
+  1. As SYS -- read-only checks
+         sqlplus / as sysdba @01_entitydev_preflight_checks.sql
+     Produces: entitydev_preflight.log
+
+  2. As SYS -- unlock and adjust privileges (sets no password)
+         sqlplus / as sysdba @02_entitydev_prepare_account.sql
+     Produces: entitydev_prepare.log
+
+  3. As ENTITYDEV -- the dry run itself
+         cd ENTITY_DDLs_DryRun
+         sqlplus ENTITYDEV@<service> @master_run_entitydev.sql
+     Produces: entitydev_dryrun_<timestamp>.log
+
+  Later, once the results have been reviewed and you are asked to:
+         sqlplus ENTITYDEV@<service> @99_entitydev_teardown.sql
+
+Three things that matter in Option B:
+
+  * Step 3 must NOT be run as SYS. The DDL contains DROP TABLE
+    statements; connecting as ENTITYDEV is what confines them to the
+    sandbox. The script refuses to run as anyone else.
+
+  * Step 3 must be run from INSIDE the ENTITY_DDLs_DryRun folder. It
+    sources its child scripts by relative path.
+
+  * On a multitenant database, steps 1 and 2 need the container set.
+    Both scripts report which container they landed in and carry a
+    commented ALTER SESSION SET CONTAINER line near the top. Step 3
+    connects through the service name, so it lands in the right PDB
+    on its own.
+
+
+WHAT TO SEND BACK
+-----------------
+
+    entitydev_preflight.log
+    entitydev_prepare.log
+    entitydev_teardown.log            (inventory of what was removed)
+    entitydev_dryrun_<timestamp>.log
+
+
+READING THE LOG
+---------------
+
+The dry run continues past errors on purpose, so one pass captures
+every problem. It will run to completion even when steps fail --
+finishing is not the same as succeeding.
+
+Expected and normal:
+  * One ORA-00942 per table during the table step. The DDL drops each
+    table before creating it, and the schema starts empty. There are
+    137 tables, so expect a lot of these.
+  * Synonyms pointing at ALS_LEGACY_REPLICA reporting success but
+    being unusable. That schema does not exist on this instance.
+
+Report immediately, do not work around:
+  * Any error naming ENTITY rather than ENTITYDEV.
+  * Any DROP that SUCCEEDS on the first run.
+  * Any INVALID function after the functions step. The table and index
+    DDL calls schema-qualified functions, so an invalid function there
+    will cascade into failures later.
+  * Anything in the ISOLATION CHECK near the end. That should return
+    no rows -- it is the evidence the ENTITY schema was untouched.
+
+
+IF IT STOPS EARLY
+-----------------
+
+The stops are deliberate. Each one means something needs checking
+before any DDL runs. Send the exact ORA- or SP2- number and the step it
+stopped at, rather than working around it.
+
+  SP2-0310 "unable to open ENTITY_DDLs_DryRun/master_run_entitydev.sql"
+      The DDL folder is missing from this directory. No DDL has run.
+      Request the complete package.
