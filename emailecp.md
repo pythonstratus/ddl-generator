@@ -2,7 +2,7 @@ Here's the breakdown from both transcripts, drafted as a ready-to-send email.
 
 A couple of things to check before sending: the root cause section is our team's inference from the call (the infra team's tech lead was mentioned as possibly Daniel Bailey, but nobody confirmed the script details), so I hedged it with "as we understand it." Also confirm whether the data restore should come from production or a replica snapshot, since the transcript left that open. I left the ICS date-math fix in as a one-liner so it's on record but doesn't distract from the ECP issue; drop it if you'd rather keep the email purely about the suspend flip.
 
-
+'''
 Hi all,
 I want to put on record what happened to our ETL jobs this week, why it is a serious risk, what we are doing right now to recover, and where we need help with the ECP/infra team.
 TIMELINE
@@ -35,3 +35,4 @@ Could you please help us escalate to the ECP/infra (OpenShift) team? Specificall
 Happy to walk through any of this in more detail. Please treat this as high priority – we cannot afford a repeat.
 Thanks,
 [Your name]
+'''
